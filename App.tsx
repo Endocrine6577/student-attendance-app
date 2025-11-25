@@ -56,6 +56,9 @@ const App: React.FC = () => {
     setIsSignedIn(signedIn);
     if (signedIn) {
         fetchAllData();
+    } else {
+        // If not signed in, we are done with the initial load and should show the sign-in screen.
+        setIsLoading(false);
     }
   };
 
@@ -66,6 +69,7 @@ const App: React.FC = () => {
             .catch(err => {
                 console.error("GAPI Init Error:", err);
                 setError("Could not connect to Google Services. Please check your configuration and network.");
+                setIsLoading(false); // Stop loading on initialization error
             });
     } else {
         setIsLoading(false);
