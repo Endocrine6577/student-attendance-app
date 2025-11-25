@@ -1,7 +1,0 @@
-{
-  "name": "Student Attendance Tracker",
-  "description": "A responsive single-page web application for managing student attendance. Features include adding, editing, and soft-deleting students, managing subjects, and generating unique QR codes for each student.",
-  "requestFramePermissions": [
-    "camera"
-  ]
-}
