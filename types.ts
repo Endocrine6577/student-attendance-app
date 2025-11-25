@@ -35,6 +35,7 @@ export interface ToastConfig {
   type: 'success' | 'error' | 'info';
 }
 
+// FIX: Added missing GoogleSheetConfig interface to resolve import errors.
 export interface GoogleSheetConfig {
   clientId: string;
   spreadsheetId: string;

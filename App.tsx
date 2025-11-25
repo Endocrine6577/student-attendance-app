@@ -9,23 +9,15 @@ import StudentDetailModal from './components/StudentDetailModal';
 import SubjectsModal from './components/SubjectsModal';
 import ConfirmationModal from './components/ConfirmationModal';
 import Toast from './components/Toast';
-import SettingsModal from './components/SettingsModal';
-import SignIn from './components/SignIn';
-import { Student, Subject, AttendanceRecord, ConfirmationModalConfig, ToastConfig, GoogleSheetConfig } from './types';
-import useLocalStorage from './hooks/useLocalStorage';
-import * as sheetsApi from './google/sheetsApi';
+import { Student, Subject, AttendanceRecord, ConfirmationModalConfig, ToastConfig } from './types';
+import * as db from './database/mockDatabase';
 
 type View = 'students' | 'scanner' | 'reports';
 
 const App: React.FC = () => {
-  const [config, setConfig] = useLocalStorage<GoogleSheetConfig | null>('googleSheetConfig', null);
-
   const [students, setStudents] = useState<Student[]>([]);
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([]);
-
-  const [gapiReady, setGapiReady] = useState(false);
-  const [isSignedIn, setIsSignedIn] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -35,7 +27,6 @@ const App: React.FC = () => {
   const [isAddEditModalOpen, setIsAddEditModalOpen] = useState(false);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
   const [isSubjectsModalOpen, setIsSubjectsModalOpen] = useState(false);
-  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
 
   const [confirmationModal, setConfirmationModal] = useState<ConfirmationModalConfig>({ isOpen: false });
@@ -52,50 +43,31 @@ const App: React.FC = () => {
     }
   }, [toast]);
   
-  const handleUpdateAuthStatus = (signedIn: boolean) => {
-    setIsSignedIn(signedIn);
-    if (signedIn) {
-        fetchAllData();
-    } else {
-        // If not signed in, we are done with the initial load and should show the sign-in screen.
-        setIsLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    if (config) {
-        sheetsApi.initClient(config, handleUpdateAuthStatus)
-            .then(() => setGapiReady(true))
-            .catch(err => {
-                console.error("GAPI Init Error:", err);
-                setError("Could not connect to Google Services. Please check your configuration and network.");
-                setIsLoading(false); // Stop loading on initialization error
-            });
-    } else {
-        setIsLoading(false);
-    }
-  }, [config]);
-
-  const fetchAllData = async () => {
+  const fetchAllData = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     try {
+        db.initializeDatabase(); // Initialize with mock data if it's the first time
         const [students, subjects, attendance] = await Promise.all([
-            sheetsApi.getStudents(),
-            sheetsApi.getSubjects(),
-            sheetsApi.getAttendance(),
+            db.getStudents(),
+            db.getSubjects(),
+            db.getAttendance(),
         ]);
         setStudents(students);
         setSubjects(subjects);
         setAttendanceRecords(attendance);
     } catch (err: any) {
         console.error("Error fetching data:", err);
-        setError(`Failed to load data from Google Sheet. Please ensure the sheet is correctly formatted and you have permission to view it. Details: ${err.message || 'Unknown Error'}`);
-        showToast('Error loading data from Google Sheet.', 'error');
+        setError(`Failed to load data. Details: ${err.message || 'Unknown Error'}`);
+        showToast('Error loading data.', 'error');
     } finally {
         setIsLoading(false);
     }
-  };
+  }, [showToast]);
+
+  useEffect(() => {
+    fetchAllData();
+  }, [fetchAllData]);
 
   const activeStudents = useMemo(() => students.filter(s => !s.isDeleted), [students]);
   const deletedStudents = useMemo(() => students.filter(s => s.isDeleted), [students]);
@@ -123,7 +95,6 @@ const App: React.FC = () => {
     setIsAddEditModalOpen(false);
     setIsViewModalOpen(false);
     setIsSubjectsModalOpen(false);
-    setIsSettingsModalOpen(false);
     setSelectedStudent(null);
   };
   
@@ -142,14 +113,14 @@ const App: React.FC = () => {
     handleCloseModals();
     try {
         if (studentData.id) {
-            await sheetsApi.updateStudent(studentData as Student);
+            await db.updateStudent(studentData as Student);
             showToast('Student details updated successfully.');
         } else {
-            const newStudent = await sheetsApi.addStudent(studentData);
+            const newStudent = await db.addStudent(studentData);
             showToast('New student added successfully.');
             setTimeout(() => handleOpenViewModal(newStudent), 100);
         }
-        setStudents(await sheetsApi.getStudents());
+        setStudents(await db.getStudents());
     } catch (err) {
         showToast('Failed to save student.', 'error');
     }
@@ -163,8 +134,8 @@ const App: React.FC = () => {
       confirmText: 'Delete',
       onConfirm: async () => {
         try {
-            await sheetsApi.updateStudent({ ...student, isDeleted: true });
-            setStudents(await sheetsApi.getStudents());
+            await db.updateStudent({ ...student, isDeleted: true });
+            setStudents(await db.getStudents());
             showToast('Student moved to Removed list.');
         } catch(err) {
             showToast('Failed to delete student.', 'error');
@@ -181,8 +152,8 @@ const App: React.FC = () => {
       confirmText: 'Restore',
       onConfirm: async () => {
          try {
-            await sheetsApi.updateStudent({ ...student, isDeleted: false });
-            setStudents(await sheetsApi.getStudents());
+            await db.updateStudent({ ...student, isDeleted: false });
+            setStudents(await db.getStudents());
             showToast('Student restored successfully.');
         } catch(err) {
             showToast('Failed to restore student.', 'error');
@@ -200,9 +171,8 @@ const App: React.FC = () => {
       confirmButtonClass: 'bg-red-700 hover:bg-red-800',
       onConfirm: async () => {
         try {
-            await sheetsApi.deleteStudent(student.id);
-            setStudents(await sheetsApi.getStudents());
-            // We could also delete attendance records, but for now we leave them as orphaned
+            await db.deleteStudent(student.id);
+            setStudents(await db.getStudents());
             showToast('Student permanently deleted.', 'success');
         } catch(err) {
             showToast('Failed to permanently delete student.', 'error');
@@ -213,8 +183,8 @@ const App: React.FC = () => {
 
   const handleAddSubject = async (name: string) => {
     try {
-        await sheetsApi.addSubject(name);
-        setSubjects(await sheetsApi.getSubjects());
+        await db.addSubject(name);
+        setSubjects(await db.getSubjects());
         showToast('Subject added successfully.');
     } catch (err) {
         showToast('Failed to add subject.', 'error');
@@ -223,8 +193,8 @@ const App: React.FC = () => {
 
   const handleDeleteSubject = async (id: number) => {
     try {
-        await sheetsApi.deleteSubject(id);
-        setSubjects(await sheetsApi.getSubjects());
+        await db.deleteSubject(id);
+        setSubjects(await db.getSubjects());
         showToast('Subject deleted.');
     } catch (err) {
         showToast('Failed to delete subject.', 'error');
@@ -245,23 +215,13 @@ const App: React.FC = () => {
     };
     
     try {
-        await sheetsApi.addAttendanceRecord(newRecord);
-        setAttendanceRecords(await sheetsApi.getAttendance());
+        await db.addAttendanceRecord(newRecord);
+        setAttendanceRecords(await db.getAttendance());
         return student;
     } catch (err) {
         showToast('Failed to record attendance.', 'error');
         return null;
     }
-  };
-  
-  const handleSaveSettings = (newConfig: GoogleSheetConfig) => {
-      setConfig(newConfig);
-      handleCloseModals();
-      window.location.reload();
-  };
-  
-  const handleSignOut = () => {
-    sheetsApi.signOut();
   };
 
   const StudentListNavButton: React.FC<{ view: 'active' | 'deleted', label: string, count: number }> = ({ view, label, count }) => {
@@ -283,22 +243,16 @@ const App: React.FC = () => {
     );
   };
   
-  if (!config) {
-    return <SettingsModal onSave={handleSaveSettings} config={null} onClose={() => { /* Cannot close */ }} />;
-  }
-
   const renderContent = () => {
-    if (!gapiReady || isLoading) {
+    if (isLoading) {
         return <div className="flex justify-center items-center h-screen"><div className="text-xl">Loading...</div></div>;
     }
-    if (!isSignedIn) {
-        return <SignIn onSignIn={sheetsApi.signIn} onOpenSettings={() => setIsSettingsModalOpen(true)} />;
-    }
+
     if (error) {
         return <div className="p-8 text-center text-red-400">
             <h2 className="text-2xl font-bold mb-4">An Error Occurred</h2>
             <p className="bg-gray-800 p-4 rounded-md">{error}</p>
-            <button onClick={() => setIsSettingsModalOpen(true)} className="mt-4 px-4 py-2 bg-blue-600 rounded-md">Edit Settings</button>
+            <button onClick={fetchAllData} className="mt-4 px-4 py-2 bg-blue-600 rounded-md">Try Again</button>
         </div>;
     }
 
@@ -309,9 +263,6 @@ const App: React.FC = () => {
           onSetView={setCurrentView}
           onAddStudent={handleOpenAddModal}
           onManageSubjects={handleOpenSubjectsModal}
-          isSignedIn={isSignedIn}
-          onSignOut={handleSignOut}
-          onOpenSettings={() => setIsSettingsModalOpen(true)}
         />
         <main className="p-4 sm:p-6 md:p-8 print:p-0">
           <div className="max-w-7xl mx-auto">
@@ -373,10 +324,6 @@ const App: React.FC = () => {
             onAddSubject={handleAddSubject}
             onDeleteSubject={handleDeleteSubject}
           />
-      </Modal>
-      
-      <Modal isOpen={isSettingsModalOpen} onClose={handleCloseModals} title="Google Sheets Integration Setup">
-          <SettingsModal config={config} onSave={handleSaveSettings} onClose={handleCloseModals}/>
       </Modal>
 
       <ConfirmationModal
